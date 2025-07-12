@@ -12,15 +12,17 @@ TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "mistralai/Mistral-7B-Instruct
 # Logging
 logging.basicConfig(level=logging.INFO)
 
-# Start command
+# /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📿 *AhkamGPT* is ready.\n\n🕌 أَهلاً وَسَهلاً، كيف يمكنني مساعدتك في أحكام الشريعة؟\n\n"
-        "You can ask questions in Arabic, English, or Farsi.",
-        parse_mode="Markdown"
+    welcome_message = (
+        "📿 *AhkamGPT* is ready.\n\n"
+        "🕌 أَهلاً وَسَهلاً، كيف يمكنني مساعدتك في أحكام الشريعة؟\n\n"
+        "Ask your questions in Arabic, English, or Farsi.\n"
+        "_All answers are based on the fatwas of Sayyed Ali Khamenei from official sources such as_ [khamenei.ir](https://khamenei.ir) _and_ [ajsite.ir](https://ajsite.ir)."
     )
+    await update.message.reply_text(welcome_message, parse_mode="Markdown")
 
-# Handle incoming messages
+# Handle all messages
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text.strip()
 
@@ -48,16 +50,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = requests.post("https://api.together.xyz/inference", headers=headers, json=payload)
         data = response.json()
 
-        reply = (
-            data.get("output")
-            or (data.get("choices") and data["choices"][0].get("text"))
-            or "⚠️ Together API returned an empty response."
-        )
-
-        if isinstance(reply, str):
-            reply = reply.strip()
+        if not data:
+            reply = "⚠️ Together API returned an empty JSON response."
+        elif "output" in data and isinstance(data["output"], str):
+            reply = data["output"].strip()
+        elif "choices" in data and isinstance(data["choices"], list) and len(data["choices"]) > 0:
+            reply = data["choices"][0].get("text", "").strip()
         else:
-            reply = "⚠️ Together API returned an invalid response format."
+            reply = f"⚠️ Unexpected response format:\n```{data}```"
+
+        if not reply:
+            reply = "⚠️ Together API returned no valid content."
 
         if len(reply) > 4096:
             reply = reply[:4093] + "..."
