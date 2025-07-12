@@ -3,26 +3,26 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters, CommandHandler
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
-TOGETHER_MODEL = os.getenv("TOGETHER_MODEL", "mistralai/Mistral-7B-Instruct-v0.3")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+TOGETHER_MODEL = "mistralai/Mistral-7B-Instruct-v0.3"
 
+# /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "السّلام عليكم 👋\n\n"
-        "اسألني أي سؤال فقهي بناءً على فتاوى سماحة السيد علي الخامنئي، "
-        "وسأجيبك بحسب المصادر الرسمية (khamenei.ir و ajsite.ir).\n\n"
-        "Welcome! Ask me any fiqh (Islamic law) question based on the fatwas of Sayyed Ali Khamenei, "
-        "and I will respond based on official sources (khamenei.ir and ajsite.ir)."
+    welcome_message = (
+        "السّلام عليكم، أرسل سؤالك عن الفقه الإسلامي بحسب فتاوى السيّد علي الخامنئي.\n"
+        "Salam alaykum. Send your Islamic law question based on the fatwas of Sayyed Ali Khamenei."
     )
+    await update.message.reply_text(welcome_message)
 
+# Main fatwa handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text.strip()
 
     system_prompt = (
         "You are a qualified Islamic scholar answering fatwas based on Sayyed Ali Khamenei's jurisprudence. "
-        "Only answer based on his rulings from official sources such as khamenei.ir and ajsite.ir. Do not invent answers. "
-        "If the answer is not found, politely say so. Language: Match user input."
+        "Only answer based on his rulings from official sources such as khamenei.ir and ajsite.ir. "
+        "Do not invent answers. If the answer is not found, politely say so. Language: Match user input."
     )
 
     payload = {
@@ -61,8 +61,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"⚠️ Exception occurred:\n{str(e)}")
 
+# Main app entry
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
