@@ -4,15 +4,15 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-# Configuration (replace with your actual keys if not using env variables)
+# Environment variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
-TOGETHER_MODEL = "mistralai/Mistral-24B-Instruct-v0.1"
+TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "mistralai/Mistral-Small-24B-Instruct-25.01")
 
-# Logging setup
+# Logging
 logging.basicConfig(level=logging.INFO)
 
-# Start command
+# /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📿 *AhkamGPT* is ready.\n\n"
@@ -21,15 +21,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# Main message handler
+# Message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text or ""
-    user_message = user_message.strip()
+    user_message = (update.message.text or "").strip()
 
-    # Basic Arabic detection
     is_arabic = any('\u0600' <= c <= '\u06FF' for c in user_message)
 
-    # System prompt based on language
     if is_arabic:
         system_prompt = (
             "أنتَ فقيهٌ إسلامي مجاز، تُجيب على أسئلة الفتوى فقط استنادًا إلى فتاوى السيد علي الخامنئي. "
@@ -44,7 +41,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Do not invent answers. If no ruling is found, say so clearly. Language: Match user input."
         )
 
-    # Together API request payload
     payload = {
         "model": TOGETHER_MODEL,
         "prompt": f"System: {system_prompt}\n\nUser: {user_message}\n\nAssistant:",
@@ -62,18 +58,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = requests.post("https://api.together.xyz/inference", headers=headers, json=payload)
         data = response.json()
 
+        # Handle different Together model formats
+        reply = None
         if "output" in data:
-            if isinstance(data["output"], dict) and "choices" in data["output"]:
-                reply = data["output"]["choices"][0].get("text", "").strip()
-            elif isinstance(data["output"], str):
+            if isinstance(data["output"], str):
                 reply = data["output"].strip()
-            else:
-                reply = "⚠️ Together API returned an unrecognized response format."
-        else:
-            reply = "⚠️ Together API did not return a valid response."
+            elif isinstance(data["output"], dict):
+                choices = data["output"].get("choices", [])
+                if choices and isinstance(choices[0], dict):
+                    reply = choices[0].get("text", "").strip()
 
         if not reply:
-            reply = "⚠️ Together API returned no valid content."
+            reply = "⚠️ Together API did not return a valid response."
 
         if len(reply) > 4096:
             reply = reply[:4093] + "..."
@@ -83,7 +79,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"⚠️ Exception occurred:\n{str(e)}")
 
-# Entry point
+# Run bot
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
