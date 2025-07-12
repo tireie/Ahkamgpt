@@ -46,22 +46,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if response.ok:
             result = response.json()
-            logging.info(f"Together API response: {result}")
-            reply = result.get("choices", [{}])[0].get("text", "Sorry, I couldn't generate a response.")
+            logging.info("RAW Together API result:")
+            logging.info(result)
+
+            # Send raw result back to you for debugging
+            await update.message.reply_text(f"🧪 Raw response:\n{result}", disable_web_page_preview=True)
+
+            # Try to extract clean answer
+            reply = result.get("choices", [{}])[0].get("text", "").strip()
+            if not reply:
+                reply = "⚠️ Together API gave an empty response."
         else:
             logging.error(f"Together API error {response.status_code}: {response.text}")
-            reply = "❌ Together API error. Please check your API key or model name."
+            reply = f"❌ Together API error {response.status_code}.\n{response.text}"
+
     except Exception as e:
         logging.exception("Exception while calling Together API")
-        reply = "⚠️ An unexpected error occurred."
+        reply = f"⚠️ Exception occurred:\n{str(e)}"
 
-    await update.message.reply_text(reply.strip())
+    await update.message.reply_text(reply)
 
 # Main entry point
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.ALL, handle_message))  # Catch all types of messages
+    app.add_handler(MessageHandler(filters.ALL, handle_message))
     app.run_polling()
 
 if __name__ == "__main__":
