@@ -24,10 +24,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text or ""
     logging.info(f"Received message: {user_message}")
 
-    system_prompt = (
-        "You are a qualified Islamic scholar answering fatwas based on Sayyed Ali Khamenei's jurisprudence. "
-        "Only answer based on his rulings. Language: Match user input."
-    )
+    # Strict system prompt with source restriction
+    prompt = f"""
+System: You are a qualified Islamic scholar answering fatwas based only on the rulings of Sayyed Ali Khamenei. Do not fabricate or guess answers. Only use verified rulings from official sources such as khamenei.ir and ajsite.ir. If the answer is not found in these sources, reply: "This issue requires direct scholarly consultation."
+
+User: {user_message}
+
+Assistant:"""
 
     headers = {
         "Authorization": f"Bearer {TOGETHER_API_KEY}",
@@ -36,9 +39,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     payload = {
         "model": TOGETHER_MODEL,
-        "prompt": f"System: {system_prompt}\n\nUser: {user_message}\n\nAssistant:",
+        "prompt": prompt.strip(),
         "max_tokens": 512,
         "temperature": 0.7,
+        "top_p": 0.9
     }
 
     try:
@@ -46,27 +50,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if response.ok:
             result = response.json()
-            logging.info("RAW Together API result:")
+            logging.info("Together API response:")
             logging.info(result)
 
-            # Extract clean reply
+            # Extract assistant reply
             reply = result.get("choices", [{}])[0].get("text", "").strip()
-
             if not reply:
                 reply = "⚠️ Together API returned an empty response."
-
         else:
             logging.error(f"Together API error {response.status_code}: {response.text}")
-            reply = f"❌ Together API error {response.status_code}.\n{response.text[:1000]}"  # trim long errors
+            reply = f"❌ Together API error {response.status_code}.\n{response.text[:1000]}"
 
     except Exception as e:
         logging.exception("Exception while calling Together API")
         reply = f"⚠️ Exception occurred:\n{str(e)}"
 
-    # Ensure Telegram message limit (4096 characters)
     await update.message.reply_text(reply[:4000])
 
-# Main entry point
+# App entry
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
