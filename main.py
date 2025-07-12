@@ -9,62 +9,65 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
 TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "mistralai/Mistral-7B-Instruct-v0.3")
 
-# Setup logging
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+# Logging
+logging.basicConfig(level=logging.INFO)
 
-# Start command
+# /start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome_message = (
-        "📿 *AhkamGPT* is ready.\n\n"
-        "🕌 أَهلاً وَسَهلاً، كيف يمكنني مساعدتك في أحكام الشريعة؟\n\n"
-        "_You can ask questions in Arabic, English, or Farsi._"
+    await update.message.reply_text(
+        "📿 *AhkamGPT* is ready.\n\n🕌 أَهلاً وَسَهلاً، كيف يمكنني مساعدتك في أحكام الشريعة؟\n\n"
+        "⚖️ I answer based on the rulings of Sayyed Ali Khamenei only.\n\n"
+        "📚 Based on official sources like:\n"
+        "- https://www.khamenei.ir\n"
+        "- https://www.ajsite.ir\n",
+        parse_mode="Markdown"
     )
-    await update.message.reply_text(welcome_message, parse_mode="Markdown")
 
-# Message handler
+# Handle user messages
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text.strip()
 
     system_prompt = (
         "You are a qualified Islamic scholar answering fatwas based on Sayyed Ali Khamenei's jurisprudence. "
-        "Only answer based on his rulings from official sources like khamenei.ir and ajsite.ir. Do not make up rulings. "
-        "Language: Match user input."
+        "Only answer based on his rulings. Language: Match user input. "
+        "Use only official sources like khamenei.ir and ajsite.ir. Do not make up rulings."
     )
+
+    headers = {
+        "Authorization": f"Bearer {TOGETHER_API_KEY}",
+        "Content-Type": "application/json",
+    }
 
     payload = {
         "model": TOGETHER_MODEL,
         "prompt": f"System: {system_prompt}\n\nUser: {user_message}\n\nAssistant:",
         "max_tokens": 512,
-        "temperature": 0.7
-    }
-
-    headers = {
-        "Authorization": f"Bearer {TOGETHER_API_KEY}",
-        "Content-Type": "application/json"
+        "temperature": 0.3,
     }
 
     try:
         response = requests.post("https://api.together.xyz/inference", headers=headers, json=payload)
-        if response.ok:
-            result = response.json()
-            reply = result.get("output", "").strip()
 
-            if reply:
-                # Limit Telegram message length
-                if len(reply) > 4096:
-                    reply = reply[:4093] + "..."
+        if not response.ok:
+            await update.message.reply_text("⚠️ Together API error. Please try again later.")
+            return
 
-                await update.message.reply_text(reply)
-            else:
-                await update.message.reply_text("⚠️ Together API returned an empty response.")
-        else:
-            logging.error(f"Together API error: {response.text}")
-            await update.message.reply_text("⚠️ Error from Together API.")
+        result = response.json()
+        reply = result.get("output")
+
+        if not reply:
+            # fallback if "output" is missing
+            try:
+                reply = result["choices"][0]["text"].strip()
+            except Exception:
+                reply = "⚠️ Together API returned an empty or invalid response."
+
+        await update.message.reply_text(reply)
+
     except Exception as e:
-        logging.exception("Exception during Together API call:")
-        await update.message.reply_text("⚠️ Exception occurred: " + str(e))
+        await update.message.reply_text(f"⚠️ Exception occurred: {str(e)}")
 
-# Main entry point
+# Main bot runner
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
