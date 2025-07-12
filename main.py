@@ -49,22 +49,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logging.info("RAW Together API result:")
             logging.info(result)
 
-            # Send raw result back to you for debugging
-            await update.message.reply_text(f"🧪 Raw response:\n{result}", disable_web_page_preview=True)
-
-            # Try to extract clean answer
+            # Extract clean reply
             reply = result.get("choices", [{}])[0].get("text", "").strip()
+
             if not reply:
-                reply = "⚠️ Together API gave an empty response."
+                reply = "⚠️ Together API returned an empty response."
+
         else:
             logging.error(f"Together API error {response.status_code}: {response.text}")
-            reply = f"❌ Together API error {response.status_code}.\n{response.text}"
+            reply = f"❌ Together API error {response.status_code}.\n{response.text[:1000]}"  # trim long errors
 
     except Exception as e:
         logging.exception("Exception while calling Together API")
         reply = f"⚠️ Exception occurred:\n{str(e)}"
 
-    await update.message.reply_text(reply)
+    # Ensure Telegram message limit (4096 characters)
+    await update.message.reply_text(reply[:4000])
 
 # Main entry point
 def main():
