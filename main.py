@@ -12,18 +12,16 @@ TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "mistralai/Mistral-7B-Instruct
 # Logging
 logging.basicConfig(level=logging.INFO)
 
-# /start command handler
+# /start handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📿 *AhkamGPT* is ready.\n\n🕌 أَهلاً وَسَهلاً، كيف يمكنني مساعدتك في أحكام الشريعة؟\n\n"
-        "⚖️ I answer based on the rulings of Sayyed Ali Khamenei only.\n\n"
-        "📚 Based on official sources like:\n"
-        "- https://www.khamenei.ir\n"
-        "- https://www.ajsite.ir\n",
+        "⚖️ I answer based on the rulings of Sayyed Ali Khamenei only.\n"
+        "📚 Based on official sources like:\n- https://www.khamenei.ir\n- https://www.ajsite.ir",
         parse_mode="Markdown"
     )
 
-# Handle user messages
+# Message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text.strip()
 
@@ -56,18 +54,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = result.get("output")
 
         if not reply:
-            # fallback if "output" is missing
             try:
                 reply = result["choices"][0]["text"].strip()
             except Exception:
                 reply = "⚠️ Together API returned an empty or invalid response."
+
+        # Trim long replies for Telegram
+        if len(reply) > 4096:
+            reply = reply[:4093] + "..."
 
         await update.message.reply_text(reply)
 
     except Exception as e:
         await update.message.reply_text(f"⚠️ Exception occurred: {str(e)}")
 
-# Main bot runner
+# Main function
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
