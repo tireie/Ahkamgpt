@@ -12,10 +12,10 @@ TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "mistralai/Mistral-7B-Instruct
 # Logging
 logging.basicConfig(level=logging.INFO)
 
-# /start command handler
+# /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📿 *AhkamGPT* is ready.\n\n🕌 أَهلاً وَسَهلاً، كيف يمكنني مساعدتك في أحكام الشريعة؟",
+        "🧪 Test mode: Ask me 'What is 2 + 2?' to verify Together API is working.",
         parse_mode="Markdown"
     )
 
@@ -24,13 +24,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text or ""
     logging.info(f"Received message: {user_message}")
 
-    # Strict system prompt with source restriction
-    prompt = f"""
-System: You are a qualified Islamic scholar answering fatwas based only on the rulings of Sayyed Ali Khamenei. Do not fabricate or guess answers. Only use verified rulings from official sources such as khamenei.ir and ajsite.ir. If the answer is not found in these sources, reply: "This issue requires direct scholarly consultation."
-
-User: {user_message}
-
-Assistant:"""
+    # Minimal prompt for API testing
+    prompt = f"User: What is 2 + 2?\n\nAssistant:"
 
     headers = {
         "Authorization": f"Bearer {TOGETHER_API_KEY}",
@@ -40,9 +35,9 @@ Assistant:"""
     payload = {
         "model": TOGETHER_MODEL,
         "prompt": prompt.strip(),
-        "max_tokens": 512,
-        "temperature": 0.7,
-        "top_p": 0.9
+        "max_tokens": 50,
+        "temperature": 0.5,
+        "top_p": 1.0
     }
 
     try:
@@ -53,7 +48,6 @@ Assistant:"""
             logging.info("Together API response:")
             logging.info(result)
 
-            # Extract assistant reply
             reply = result.get("choices", [{}])[0].get("text", "").strip()
             if not reply:
                 reply = "⚠️ Together API returned an empty response."
