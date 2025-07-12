@@ -7,7 +7,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Con
 # Environment variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
-TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "mistralai/Mistral-7B-Instruct-v0.3")
+TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "NousResearch/Nous-Hermes-2-Mistral-7B-DPO")
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -23,8 +23,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text or ""
-    user_message = user_message.strip()
+    user_message = (update.message.text or "").strip()
 
     # Detect language (basic heuristic)
     is_arabic = any('\u0600' <= c <= '\u06FF' for c in user_message)
@@ -46,7 +45,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payload = {
         "model": TOGETHER_MODEL,
         "prompt": f"System: {system_prompt}\n\nUser: {user_message}\n\nAssistant:",
-        "max_tokens": 400,
+        "max_tokens": 512,
         "temperature": 0.3,
         "stop": ["User:", "Assistant:"],
     }
@@ -60,7 +59,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = requests.post("https://api.together.xyz/inference", headers=headers, json=payload)
         data = response.json()
 
-        # Handle both output formats: flat or nested
+        # Handle both output formats
         if "output" in data:
             if isinstance(data["output"], dict) and "choices" in data["output"]:
                 reply = data["output"]["choices"][0].get("text", "").strip()
