@@ -7,7 +7,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Con
 # Environment variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
-TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "mistralai/Mistral-Small-24B-Instruct-25.01")
+TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "mistralai/Mistral-7B-Instruct-v0.3")
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -23,16 +23,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = (update.message.text or "").strip()
+    user_message = update.message.text or ""
+    user_message = user_message.strip()
 
+    # Detect language (basic heuristic)
     is_arabic = any('\u0600' <= c <= '\u06FF' for c in user_message)
 
     if is_arabic:
         system_prompt = (
-            "أنتَ فقيهٌ إسلامي مجاز، تُجيب على أسئلة الفتوى فقط استنادًا إلى فتاوى السيد علي الخامنئي. "
-            "لا تخترع الأحكام، ولا تجب من نفسك. "
+            "أنت فقيه إسلامي مجاز، تُجيب على أسئلة الفتوى فقط استنادًا إلى فتاوى السيد علي الخامنئي. "
+            "لا تخترع الأحكام ولا تستخدم اجتهادك الشخصي. "
             "اعتمد فقط على المصادر الرسمية مثل khamenei.ir و ajsite.ir. "
-            "إذا لم يوجد حكم، فقل ذلك بوضوح. أجب باللغة العربية فقط."
+            "إذا لم يكن هناك فتوى واضحة، فقل ذلك بوضوح وبدون اجتهاد."
         )
     else:
         system_prompt = (
@@ -58,18 +60,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = requests.post("https://api.together.xyz/inference", headers=headers, json=payload)
         data = response.json()
 
-        # Handle different Together model formats
-        reply = None
+        # Handle both output formats: flat or nested
         if "output" in data:
-            if isinstance(data["output"], str):
+            if isinstance(data["output"], dict) and "choices" in data["output"]:
+                reply = data["output"]["choices"][0].get("text", "").strip()
+            elif isinstance(data["output"], str):
                 reply = data["output"].strip()
-            elif isinstance(data["output"], dict):
-                choices = data["output"].get("choices", [])
-                if choices and isinstance(choices[0], dict):
-                    reply = choices[0].get("text", "").strip()
+            else:
+                reply = "⚠️ Together API returned an unrecognized response format."
+        else:
+            reply = "⚠️ Together API did not return a valid response."
 
         if not reply:
-            reply = "⚠️ Together API did not return a valid response."
+            reply = "⚠️ Together API returned no valid content."
 
         if len(reply) > 4096:
             reply = reply[:4093] + "..."
