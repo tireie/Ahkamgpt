@@ -1,10 +1,32 @@
+import os
+import logging
+import requests
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+
+# Load environment variables
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
+TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "mistralai/Mistral-7B-Instruct-v0.3")
+
+# Logging
+logging.basicConfig(level=logging.INFO)
+
+# Start command
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📿 *AhkamGPT* is ready.\n\n🕌 أَهلاً وَسَهلاً، كيف يمكنني مساعدتك في أحكام الشريعة؟",
+        parse_mode="Markdown"
+    )
+
+# Message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text.strip()
 
     system_prompt = (
         "You are a qualified Islamic scholar answering fatwas based on Sayyed Ali Khamenei's jurisprudence. "
-        "Only answer based on his rulings. Language: Match user input. "
-        "Use only official sources like khamenei.ir and ajsite.ir. Do not make up rulings."
+        "Only answer based on his rulings. Use only official sources like khamenei.ir and ajsite.ir. "
+        "Do not make up rulings. Language: Match user input."
     )
 
     headers = {
@@ -27,16 +49,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         result = response.json()
-
-        # Safely extract text
         reply = result.get("output") or result.get("choices", [{}])[0].get("text") or ""
 
-        if not isinstance(reply, str):
-            reply = str(reply)
+        # Make sure it's a string and trimmed
+        reply = str(reply).strip()
 
-        reply = reply.strip()
-
-        # Enforce Telegram limit
+        # Truncate if too long
         if len(reply) > 4096:
             reply = reply[:4093] + "..."
 
@@ -44,3 +62,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await update.message.reply_text(f"⚠️ Exception occurred: {str(e)}")
+
+# Entry point
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
