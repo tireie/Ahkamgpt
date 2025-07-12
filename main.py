@@ -4,15 +4,15 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-# Hardcoded API tokens and model
-BOT_TOKEN = "your-telegram-bot-token"
-TOGETHER_API_KEY = "your-together-api-key"
+# Configuration (replace with your actual keys if not using env variables)
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
 TOGETHER_MODEL = "mistralai/Mistral-24B-Instruct-v0.1"
 
-# Logging
+# Logging setup
 logging.basicConfig(level=logging.INFO)
 
-# /start command
+# Start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📿 *AhkamGPT* is ready.\n\n"
@@ -21,14 +21,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# Message handler
+# Main message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text or ""
     user_message = user_message.strip()
 
-    # Detect language (basic heuristic)
+    # Basic Arabic detection
     is_arabic = any('\u0600' <= c <= '\u06FF' for c in user_message)
 
+    # System prompt based on language
     if is_arabic:
         system_prompt = (
             "أنتَ فقيهٌ إسلامي مجاز، تُجيب على أسئلة الفتوى فقط استنادًا إلى فتاوى السيد علي الخامنئي. "
@@ -43,6 +44,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Do not invent answers. If no ruling is found, say so clearly. Language: Match user input."
         )
 
+    # Together API request payload
     payload = {
         "model": TOGETHER_MODEL,
         "prompt": f"System: {system_prompt}\n\nUser: {user_message}\n\nAssistant:",
@@ -60,7 +62,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = requests.post("https://api.together.xyz/inference", headers=headers, json=payload)
         data = response.json()
 
-        # Handle both output formats
         if "output" in data:
             if isinstance(data["output"], dict) and "choices" in data["output"]:
                 reply = data["output"]["choices"][0].get("text", "").strip()
@@ -82,7 +83,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"⚠️ Exception occurred:\n{str(e)}")
 
-# Run bot
+# Entry point
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
