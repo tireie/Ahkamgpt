@@ -12,12 +12,17 @@ TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "mistralai/Mistral-7B-Instruct
 # Logging
 logging.basicConfig(level=logging.INFO)
 
-# Handlers
+# /start handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📿 *AhkamGPT* is ready.\n\n🕌 أَهلاً وَسَهلاً، كيف يمكنني مساعدتك في أحكام الشريعة؟", parse_mode="Markdown")
+    await update.message.reply_text(
+        "📿 *AhkamGPT* is ready.\n\n🕌 أَهلاً وَسَهلاً، كيف يمكنني مساعدتك في أحكام الشريعة؟",
+        parse_mode="Markdown"
+    )
 
+# User message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text
+    user_message = update.message.text or ""
+    logging.info(f"Received message: {user_message}")
 
     system_prompt = (
         "You are a qualified Islamic scholar answering fatwas based on Sayyed Ali Khamenei's jurisprudence. "
@@ -36,20 +41,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "temperature": 0.7,
     }
 
-    response = requests.post("https://api.together.xyz/inference", headers=headers, json=payload)
+    try:
+        response = requests.post("https://api.together.xyz/inference", headers=headers, json=payload)
 
-    if response.ok:
-        result = response.json()
-        reply = result.get("output", "Sorry, I couldn't generate a response.")
-    else:
-        reply = "An error occurred while processing your request."
+        if response.ok:
+            result = response.json()
+            logging.info(f"Together API response: {result}")
+            reply = result.get("output", "Sorry, I couldn't generate a response.")
+        else:
+            logging.error(f"Together API error {response.status_code}: {response.text}")
+            reply = "❌ Together API error. Please check your API key or model name."
+    except Exception as e:
+        logging.exception("Exception while calling Together API")
+        reply = "⚠️ An unexpected error occurred."
 
     await update.message.reply_text(reply)
 
+# Main function
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.ALL, handle_message))  # Catch all messages
     app.run_polling()
 
 if __name__ == "__main__":
