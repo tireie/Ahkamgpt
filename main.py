@@ -9,20 +9,19 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
 TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "mistralai/Mistral-7B-Instruct-v0.3")
 
-# Logging
+# Logging setup
 logging.basicConfig(level=logging.INFO)
 
-# /start command
+# /start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome_message = (
+    await update.message.reply_text(
         "📿 *AhkamGPT* is ready.\n\n"
         "🕌 أَهلاً وَسَهلاً، كيف يمكنني مساعدتك في أحكام الشريعة؟\n\n"
-        "Ask your questions in Arabic, English, or Farsi.\n"
-        "_All answers are based on the fatwas of Sayyed Ali Khamenei from official sources such as_ [khamenei.ir](https://khamenei.ir) _and_ [ajsite.ir](https://ajsite.ir)."
+        "You can ask questions in Arabic, English, or Farsi.",
+        parse_mode="Markdown"
     )
-    await update.message.reply_text(welcome_message, parse_mode="Markdown")
 
-# Handle all messages
+# Message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text.strip()
 
@@ -50,14 +49,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = requests.post("https://api.together.xyz/inference", headers=headers, json=payload)
         data = response.json()
 
-        if not data:
-            reply = "⚠️ Together API returned an empty JSON response."
-        elif "output" in data and isinstance(data["output"], str):
-            reply = data["output"].strip()
-        elif "choices" in data and isinstance(data["choices"], list) and len(data["choices"]) > 0:
-            reply = data["choices"][0].get("text", "").strip()
+        if "output" in data and "choices" in data["output"]:
+            reply = data["output"]["choices"][0].get("text", "").strip()
         else:
-            reply = f"⚠️ Unexpected response format:\n```{data}```"
+            reply = "⚠️ Together API returned an invalid response format."
 
         if not reply:
             reply = "⚠️ Together API returned no valid content."
@@ -70,7 +65,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"⚠️ Exception occurred:\n{str(e)}")
 
-# Main entry point
+# Run the bot
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
