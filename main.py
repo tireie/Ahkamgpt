@@ -1,27 +1,3 @@
-import os
-import logging
-import requests
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-
-# Load environment variables
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
-TOGETHER_MODEL = os.environ.get("TOGETHER_MODEL", "mistralai/Mistral-7B-Instruct-v0.3")
-
-# Logging
-logging.basicConfig(level=logging.INFO)
-
-# /start handler
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📿 *AhkamGPT* is ready.\n\n🕌 أَهلاً وَسَهلاً، كيف يمكنني مساعدتك في أحكام الشريعة؟\n\n"
-        "⚖️ I answer based on the rulings of Sayyed Ali Khamenei only.\n"
-        "📚 Based on official sources like:\n- https://www.khamenei.ir\n- https://www.ajsite.ir",
-        parse_mode="Markdown"
-    )
-
-# Message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text.strip()
 
@@ -51,15 +27,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         result = response.json()
-        reply = result.get("output")
 
-        if not reply:
-            try:
-                reply = result["choices"][0]["text"].strip()
-            except Exception:
-                reply = "⚠️ Together API returned an empty or invalid response."
+        # Safely extract text
+        reply = result.get("output") or result.get("choices", [{}])[0].get("text") or ""
 
-        # Trim long replies for Telegram
+        if not isinstance(reply, str):
+            reply = str(reply)
+
+        reply = reply.strip()
+
+        # Enforce Telegram limit
         if len(reply) > 4096:
             reply = reply[:4093] + "..."
 
@@ -67,13 +44,3 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await update.message.reply_text(f"⚠️ Exception occurred: {str(e)}")
-
-# Main function
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
