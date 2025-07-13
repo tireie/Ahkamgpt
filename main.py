@@ -1,40 +1,61 @@
-import os import logging import httpx from telegram import Update from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+import os
+import logging
+import httpx
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-Load token from environment variable or hardcode for local testing
+logging.basicConfig(level=logging.INFO)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN") or "YOUR_TELEGRAM_BOT_TOKEN" TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY") or "YOUR_TOGETHER_API_KEY" MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
 
-Prompt template with language routing
+MODEL = "Qwen/Qwen2.5-7B-Instruct"
 
-PROMPT_TEMPLATE = '''System: You are a qualified Islamic scholar answering fatwas based on Sayyed Ali Khamenei's jurisprudence. Only use rulings that exist on khamenei.ir or ajsite.ir. Never invent or guess answers. If no ruling exists, reply: "No fatwa is found on this topic." Language: {lang}
+SYSTEM_PROMPT = """You are a qualified Islamic scholar answering fatwas based only on the rulings of Sayyed Ali Khamenei. Only respond with what is present in his official sources such as khamenei.ir and ajsite.org. Do not invent answers. Respond in the same language the question is asked in (Arabic or English)."""
 
-User: {question}'''
+async def query_together_api(message: str):
+    try:
+        response = httpx.post(
+            "https://api.together.xyz/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {TOGETHER_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": MODEL,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": message},
+                ],
+                "temperature": 0.2,
+                "max_tokens": 1024,
+                "top_p": 0.95,
+            },
+            timeout=60
+        )
+        response.raise_for_status()
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
+    except Exception as e:
+        logging.error(f"API error: {e}")
+        return "⚠️ An error occurred while processing your question."
 
-Logging setup
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🕌 Welcome to AhkamGPT.\n\nAsk me your Islamic questions, and I’ll answer based on the fatwas of Sayyed Ali Khamenei (from khamenei.ir and ajsite.org).\n\nمثال: هل يجوز الإفطار أثناء الحيض؟\nExample: Can I fast while breastfeeding?"
+    )
 
-logging.basicConfig(level=logging.INFO) logger = logging.getLogger("AhkamGPT")
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
+    logging.info(f"Received: {user_message}")
+    reply = await query_together_api(user_message)
+    await update.message.reply_text(reply)
 
-Function to detect language (very basic)
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.run_polling()
 
-def detect_language(text: str) -> str: if any(c in text for c in "ضصثقفغعهخحجچشسیبلاهتنمکگ1234567890أإآىئءة"): return "Arabic" elif any(c in text for c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"): return "English" else: return "English"
-
-Query Together API
-
-async def ask_together(question: str, lang: str) -> str: headers = { "Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json" } payload = { "model": MODEL_NAME, "messages": [ {"role": "system", "content": PROMPT_TEMPLATE.format(lang=lang, question=question)} ], "temperature": 0.2, "top_p": 0.95 }
-
-async with httpx.AsyncClient(timeout=60) as client:
-    response = await client.post("https://api.together.ai/v1/chat/completions", json=payload, headers=headers)
-    response.raise_for_status()
-    result = response.json()
-    return result["choices"][0]["message"]["content"].strip()
-
-Handlers
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE): await update.message.reply_text("🕌 Welcome to AhkamGPT. Ask me Islamic rulings based on Sayyed Ali Khamenei's fatwas in Arabic or English.")
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE): question = update.message.text.strip() lang = detect_language(question) try: reply = await ask_together(question, lang) except Exception as e: logger.error(f"API error: {e}") reply = "⚠️ An error occurred while processing your question." await update.message.reply_text(reply)
-
-Main runner
-
-if name == 'main': app = ApplicationBuilder().token(BOT_TOKEN).build() app.add_handler(CommandHandler("start", start)) app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)) logger.info("✅ Bot is running...") app.run_polling()
-
+if __name__ == "__main__":
+    main()
