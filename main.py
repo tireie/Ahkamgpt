@@ -4,76 +4,85 @@ import httpx
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-# Load tokens from environment
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
-if not TELEGRAM_TOKEN or not TOGETHER_API_KEY:
-    raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or TOGETHER_API_KEY in environment")
+# Load tokens
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# System prompts for English and Arabic users
+if not BOT_TOKEN or not OPENROUTER_API_KEY:
+    raise RuntimeError("Missing BOT_TOKEN or OPENROUTER_API_KEY")
+
+# System prompts
 SYSTEM_PROMPT_EN = (
-    "You are an assistant answering Islamic jurisprudence questions. "
-    "You must answer *only* based on official fatwas of Sayyed Ali Khamenei from khamenei.ir and ajsite.ir. "
-    "Do not guess or provide any other information. Answer concisely and accurately, without verbosity. "
-    "If there is no known fatwa for the question, reply exactly: \"There is no known fatwa from Sayyed Ali Khamenei on this topic.\""
-)
-SYSTEM_PROMPT_AR = (
-    "أنت مساعد للإجابة على أسئلة الفقه الإسلامي بناءً فقط على فتاوى رسمية للسيد علي خامنئي من khamenei.ir و ajsite.ir. "
-    "لا تقم بالتخمين أو إضافة أي معلومات أخرى. أجب بإيجاز ودقة دون إطالة. "
-    "إذا لم توجد فتوى معروفة حول السؤال، فأجب بالضبط: \"لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع.\""
+    "You are a trusted Islamic jurist answering only based on the official religious rulings (fatwas) of "
+    "Sayyed Ali Khamenei. Use only official sources such as khamenei.ir and ajsite.ir.\n\n"
+    "You must:\n"
+    "1. Only provide rulings explicitly found in Sayyed Khamenei’s official fatwas.\n"
+    "2. Never guess, generalize, or use rulings from other scholars.\n"
+    "3. If no fatwa exists, reply: \"There is no known fatwa from Sayyed Ali Khamenei on this topic.\"\n"
+    "4. Answer in the user's language. Be concise, accurate, and avoid personal interpretation."
 )
 
+SYSTEM_PROMPT_AR = (
+    "أنت فقيه إسلامي موثوق تجيب فقط استنادًا إلى الفتاوى الرسمية للسيد علي الخامنئي. "
+    "استخدم فقط المصادر الرسمية مثل khamenei.ir و ajsite.ir.\n\n"
+    "يجب عليك:\n"
+    "1. تقديم الأحكام الموجودة فقط في فتاوى السيد علي الخامنئي.\n"
+    "2. لا تخمن أو تعمم أو تستخدم فتاوى من مراجع آخرين.\n"
+    "3. إذا لم توجد فتوى، أجب: \"لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع.\"\n"
+    "4. أجب بلغة المستخدم بدقة واختصار، دون تفسير شخصي."
+)
+
+# Language detection
 def is_arabic(text: str) -> bool:
-    """Simple check if the text contains Arabic characters."""
     return bool(re.search(r'[\u0600-\u06FF]', text))
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_text = update.message.text.strip()
-    if not user_text:
-        return
+# Qwen model via OpenRouter
+MODEL_ID = "qwen/qwen3-30b-a3b"
 
-    # Determine language and set system prompt and fallback accordingly
-    if is_arabic(user_text):
-        system_prompt = SYSTEM_PROMPT_AR
-    else:
-        system_prompt = SYSTEM_PROMPT_EN
-
-    # Prepare the payload for Together AI chat completions3
-    api_url = "https://api.together.xyz/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {TOGETHER_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "mistralai/Mistral-7B-Instruct-v0.3",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text}
-        ]
-    }
-
-    # Call Together API
+async def ask_openrouter(system_prompt: str, user_input: str) -> str:
     try:
-        response = httpx.post(api_url, headers=headers, json=payload)
+        response = await httpx.AsyncClient().post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": "https://yourdomain.com",  # optional
+                "X-Title": "AhkamGPT Fatwa Bot"
+            },
+            json={
+                "model": MODEL_ID,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input}
+                ],
+                "temperature": 0.2,
+                "max_tokens": 512
+            },
+            timeout=30
+        )
         response.raise_for_status()
         data = response.json()
-        # Extract the assistant's reply
-        answer = data["choices"][0]["message"]["content"].strip()
+        return data["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        # In case of any error, use fallback response
-        if is_arabic(user_text):
-            answer = "لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع."
-        else:
-            answer = "There is no known fatwa from Sayyed Ali Khamenei on this topic."
+        return (
+            "لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع." if is_arabic(user_input)
+            else "There is no known fatwa from Sayyed Ali Khamenei on this topic."
+        )
 
-    # Reply to the user
-    await update.message.reply_text(answer)
+# Telegram handler
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_input = update.message.text.strip()
+    if not user_input:
+        return
+    system_prompt = SYSTEM_PROMPT_AR if is_arabic(user_input) else SYSTEM_PROMPT_EN
+    reply = await ask_openrouter(system_prompt, user_input)
+    await update.message.reply_text(reply)
 
-def main() -> None:
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    # Handle text messages (excluding commands)
+# Main entry
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    print("AhkamGPT bot (Qwen3) started.")
     app.run_polling()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
