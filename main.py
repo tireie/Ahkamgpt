@@ -1,102 +1,120 @@
-import os, re, logging, sys
+import os
+import re
+import asyncio
+import requests
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-import httpx
+from telegram.ext import Application, MessageHandler, ContextTypes, filters
 
-# Configure logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+# Load required environment variables (Telegram bot token and Together API key)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
+if not BOT_TOKEN or not TOGETHER_API_KEY:
+    raise RuntimeError("Missing BOT_TOKEN or TOGETHER_API_KEY environment variables.")
+
+# Define the system prompt that instructs the AI model to only use official fatwas.
+SYSTEM_PROMPT = (
+    "You are an assistant that only provides answers based on the official fatwas of "
+    "Sayyed Ali Khamenei (from khamenei.ir or ajsite.ir). Answer **only** with a direct quote or content "
+    "from those fatwas, without additional commentary. If you do not know of an official fatwa on the user's question, "
+    "respond with exactly:\n"
+    "- English: \"There is no known fatwa from Sayyed Ali Khamenei on this topic.\"\n"
+    "- Arabic: \"لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع.\"\n"
+    "Always answer in the same language that the question was asked."
 )
 
-# Load tokens from Railway environment
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
-if not BOT_TOKEN or not TOGETHER_API_KEY:
-    logging.error("Missing BOT_TOKEN or TOGETHER_API_KEY environment variable.")
-    sys.exit(1)
-
-# Detect Arabic text
-def contains_arabic(text: str) -> bool:
-    return bool(re.search(r'[\u0600-\u06FF]', text))
-
-# /start command
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_lang = update.effective_user.language_code if update.effective_user else ""
-    if user_lang.lower().startswith("ar"):
-        await update.message.reply_text(
-            "👋 مرحبًا! أرسل سؤالك الشرعي وسأجيبك فقط وفقًا لفتاوى سماحة السيد علي الخامنئي من المصادر الرسمية."
-        )
+def detect_language(text: str) -> str:
+    """
+    Detect the language of the input text. Returns 'ar' for Arabic and 'en' for English (default).
+    """
+    # Simple detection: check for Arabic characters
+    if re.search(r'[\u0600-\u06FF]', text):
+        return 'ar'
     else:
-        await update.message.reply_text(
-            "👋 Welcome! Send your Islamic question and I will answer strictly based on Sayyed Ali Khamenei's official rulings."
-        )
+        return 'en'
 
-# Message handler
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_text = (update.message.text or "").strip()
-    if not user_text:
-        return
-
-    is_arabic = contains_arabic(user_text)
-
-    system_prompt = (
-        "You are a qualified Islamic scholar. Answer fatwa questions strictly based on Sayyed Ali Khamenei’s rulings. "
-        "Only use khamenei.ir and ajsite.ir as references. "
-        "If no official fatwa exists, say so. Do not guess or invent. "
-        f"Answer in {'Arabic' if is_arabic else 'English'}."
-    )
-
+async def query_together_api(question: str) -> str:
+    """
+    Send the question to the Together AI chat completion API with the system prompt.
+    Returns the model's answer as a string, or None if an error occurred.
+    """
+    # Prepare the messages payload for the chat completion request
     messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_text}
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": question}
     ]
-
-    try:
-        await update.message.reply_chat_action("typing")
-    except Exception as e:
-        logging.warning(f"Chat action failed: {e}")
-
-    api_url = "https://api.together.xyz/v1/chat/completions"
+    payload = {
+        "model": "mistralai/Mistral-7B-Instruct-v0.1",  # Mistral-7B-Instruct model (version 0.1)0
+        "messages": messages,
+        "max_tokens": 512  # limit the response length if needed
+    }
     headers = {
         "Authorization": f"Bearer {TOGETHER_API_KEY}",
         "Content-Type": "application/json"
     }
-    payload = {
-        "model": "mistralai/Mistral-7B-Instruct-v0.3",
-        "messages": messages,
-        "temperature": 0.0,
-        "max_tokens": 1000
-    }
 
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(api_url, headers=headers, json=payload, timeout=20)
-            response.raise_for_status()
-            data = response.json()
+        # Use asyncio.to_thread to avoid blocking the event loop with a synchronous request
+        response = await asyncio.to_thread(
+            requests.post, "https://api.together.xyz/v1/chat/completions", 
+            headers=headers, json=payload, timeout=15
+        )
     except Exception as e:
-        logging.error(f"API Error: {e}")
-        msg = "عذرًا، حدث خطأ في الخدمة. حاول لاحقًا." if is_arabic else "Sorry, the service is currently unavailable. Please try again later."
-        await update.message.reply_text(msg)
+        print(f"Error connecting to Together API: {e}")
+        return None
+
+    if response.status_code != 200:
+        # Log non-200 responses for debugging
+        print(f"Together API error {response.status_code}: {response.text}")
+        return None
+
+    # Parse the JSON response to get the assistant's reply
+    data = response.json()
+    try:
+        # The Together API is OpenAI-compatible for chat; extract the assistant message content1
+        answer = data["choices"][0]["message"]["content"]
+    except KeyError:
+        # Fallback parsing in case of a different response format
+        choices = data.get("choices")
+        if choices:
+            answer = choices[0].get("text", "")
+        else:
+            answer = ""
+    return answer.strip()
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle incoming Telegram messages (text only) and send the appropriate response."""
+    user_text = (update.message.text or "").strip()
+    if not user_text:
+        return  # Ignore empty messages or messages with only whitespace
+
+    # Detect the language of the user's question
+    lang = detect_language(user_text)
+    # Query the Together AI API for an answer based on Khamenei's fatwas
+    answer = await query_together_api(user_text)
+
+    # If the API call failed or returned no answer, send the fallback response
+    if answer is None or answer == "":
+        if lang == 'ar':
+            await update.message.reply_text("لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع.")
+        else:
+            await update.message.reply_text("There is no known fatwa from Sayyed Ali Khamenei on this topic.")
         return
 
-    reply_text = ""
-    if data.get("choices"):
-        reply = data["choices"][0]
-        if reply.get("message") and reply["message"].get("content"):
-            reply_text = reply["message"]["content"]
-        elif reply.get("text"):
-            reply_text = reply["text"]
+    # If the model responded in the opposite language by mistake, adjust the fallback language
+    if lang == 'ar' and answer.lower().startswith("there is no known fatwa"):
+        answer = "لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع."
+    elif lang == 'en' and "لا توجد فتوى" in answer:
+        answer = "There is no known fatwa from Sayyed Ali Khamenei on this topic."
 
-    if not reply_text.strip():
-        reply_text = "لا توجد فتوى متاحة لهذا السؤال." if is_arabic else "No fatwa is available for this question."
+    # Reply with the model's answer (already in the appropriate language)
+    await update.message.reply_text(answer)
 
-    await update.message.reply_text(reply_text.strip())
+if __name__ == "__main__":
+    # Initialize the Telegram bot application for polling
+    application = Application.builder().token(BOT_TOKEN).build()
+    # Only handle text messages (ignore non-text to avoid errors)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Launch bot
-def main() -> None:
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.run_polling()
-
-if __name__
+    # Start polling Telegram for new messages (this will run until the process is stopped)
+    print("Bot is polling Telegram for messages...")
+    application.run_polling()
