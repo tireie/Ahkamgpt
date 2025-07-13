@@ -19,14 +19,9 @@ if not BOT_TOKEN or not TOGETHER_API_KEY:
     logging.error("Missing BOT_TOKEN or TOGETHER_API_KEY.")
     sys.exit(1)
 
-# Verified fatwa fallback database
+# Local verified fatwas with grouped keywords
 known_fatwas = {
-    "shrimp": {
-        "en": "Shrimp is halal according to Sayyed Ali Khamenei.",
-        "ar": "الروبيان حلال حسب فتوى السيد علي الخامنئي.",
-        "source": "https://www.ajsite.ir"
-    },
-    "eating shrimp": {
+    "shrimp prawns seafood": {
         "en": "Shrimp is halal according to Sayyed Ali Khamenei.",
         "ar": "الروبيان حلال حسب فتوى السيد علي الخامنئي.",
         "source": "https://www.ajsite.ir"
@@ -54,15 +49,16 @@ system_prompt = (
 def contains_arabic(text: str) -> bool:
     return bool(re.search(r'[\u0600-\u06FF]', text))
 
-# Simple fatwa fallback check
+# Flexible local fatwa matcher
 def search_fatwa_local(user_input: str) -> dict:
     user_input_lower = user_input.lower()
-    for keyword in known_fatwas:
-        if keyword in user_input_lower:
-            return known_fatwas[keyword]
+    for keyword_group, data in known_fatwas.items():
+        keywords = keyword_group.split()
+        if any(kw in user_input_lower for kw in keywords):
+            return data
     return None
 
-# Ask Together AI
+# Query Together AI
 async def ask_together(user_input: str) -> str:
     messages = [
         {"role": "system", "content": system_prompt},
@@ -90,7 +86,7 @@ async def ask_together(user_input: str) -> str:
         logging.error(f"Together API error: {e}")
         return "⚠️ Fatwa service is currently unavailable. Please try again later."
 
-# Handle user messages
+# Telegram message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text.strip()
     if not user_text:
@@ -98,18 +94,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lang = "ar" if contains_arabic(user_text) else "en"
 
-    # Check local fatwa fallback first
+    # 1. Try local fallback
     local_fatwa = search_fatwa_local(user_text)
     if local_fatwa:
         await update.message.reply_text(local_fatwa[lang])
         return
 
-    # Else, ask the model
+    # 2. Ask the model
     logging.info(f"User asked: {user_text}")
     reply = await ask_together(user_text)
     logging.info(f"Bot replied: {reply}")
 
-    # Correct model mistakes when it fails to recall existing rulings
+    # 3. Fallback to correct language if model guessed incorrectly
     if reply.lower().startswith("there is no known fatwa") and lang == "ar":
         reply = "لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع."
     elif "لا توجد فتوى" in reply and lang == "en":
@@ -117,11 +113,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(reply)
 
-# Start the bot
+# Start bot
 def main():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logging.info("AhkamGPT bot with fallback fatwa DB started.")
+    logging.info("AhkamGPT bot with improved fallback started.")
     application.run_polling()
 
 if __name__ == "__main__":
