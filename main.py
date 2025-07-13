@@ -4,10 +4,11 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-# HARD CODED KEYS
-TELEGRAM_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
-TOGETHER_API_KEY = "YOUR_TOGETHER_API_KEY"
-TOGETHER_MODEL = "Qwen/Qwen1.5-7B-Chat"  # Better Arabic support
+# Load from Railway environment
+TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
+TOGETHER_MODEL = "Qwen/Qwen1.5-7B-Chat"
+Better Arabic support
 
 # Logging
 logging.basicConfig(level=logging.INFO)
