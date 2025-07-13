@@ -72,7 +72,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "Qwen/Qwen1.5-7B-Instruct",
+        "model": "mistralai/Mistral-7B-Instruct-v0.3",
         "messages": messages,
         "max_tokens": 1000,
         "temperature": 0.0
