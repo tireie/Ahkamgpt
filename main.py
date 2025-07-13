@@ -19,16 +19,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# Trusted source list
-TRUSTED_SOURCES = [
-    "leader.ir",
-    "khamenei.ir",
-    "abna24.com",
-    "al-islam.org",
-    "ajsite.ir"  # Additional verified source
-]
-
-# System prompts
+# English system prompt (always used)
 SYSTEM_PROMPT_EN = (
     "You are a qualified Islamic jurist answering fatwas based strictly on the official rulings of Sayyed Ali Khamenei. "
     "You must only use fatwas published on the following official and trusted websites:\n"
@@ -38,16 +29,7 @@ SYSTEM_PROMPT_EN = (
     "Always answer in the user's language. Be accurate, concise, and use only confirmed rulings from the listed sources."
 )
 
-SYSTEM_PROMPT_AR = (
-    "أنت فقيه إسلامي تجيب عن الأسئلة الشرعية استنادًا فقط إلى الفتاوى الرسمية للسيد علي الخامنئي. "
-    "يجب أن تستند إجاباتك حصراً إلى الفتاوى المنشورة على المواقع التالية:\n"
-    "- leader.ir\n- khamenei.ir\n- abna24.com\n- al-islam.org\n- ajsite.ir\n\n"
-    "لا تخمّن ولا تعمم، ولا تستخدم فتاوى من مراجع آخرين. "
-    "إذا لم توجد فتوى، أجب: \"لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع.\"\n"
-    "أجب دائمًا بلغة المستخدم بدقة واختصار، واستند فقط إلى المصادر المذكورة أعلاه."
-)
-
-# Welcome message
+# Welcome message (bilingual)
 WELCOME_MESSAGE = (
     "🕌 **As-salamu alaykum wa rahmatullah**\n\n"
     "Welcome to Ahkam GPT — your assistant for verified Islamic rulings (fatwas) "
@@ -60,7 +42,7 @@ WELCOME_MESSAGE = (
     "🗣 يمكنكم طرح الأسئلة بالعربية أو الإنجليزية."
 )
 
-# Detect Arabic
+# Detect Arabic text
 def is_arabic(text: str) -> bool:
     return bool(re.search(r'[\u0600-\u06FF]', text))
 
@@ -100,15 +82,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
     user_input = update.message.text.strip()
-    system_prompt = SYSTEM_PROMPT_AR if is_arabic(user_input) else SYSTEM_PROMPT_EN
+
+    # Always use English prompt, but force Arabic reply if Arabic input is detected
+    system_prompt = SYSTEM_PROMPT_EN
+    if is_arabic(user_input):
+        user_input = "أجب باللغة العربية فقط.\n" + user_input
+
     reply = await ask_openrouter(system_prompt, user_input)
     await update.message.reply_text(reply)
 
-# Start handler
+# /start command
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(WELCOME_MESSAGE, parse_mode="Markdown")
 
-# Main
+# Main bot logic
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_command))
