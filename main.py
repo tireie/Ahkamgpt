@@ -8,7 +8,6 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Con
 TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
 TOGETHER_MODEL = "Qwen/Qwen1.5-7B-Chat"
-Better Arabic support
 
 # Logging
 logging.basicConfig(level=logging.INFO)
