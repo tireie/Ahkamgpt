@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
 
-MODEL = "Qwen/Qwen2.5-7B-Instruct"
+MODEL = "Qwen/Qwen2.5-7B-Chat"
 
 SYSTEM_PROMPT = """You are a qualified Islamic scholar answering fatwas based only on the rulings of Sayyed Ali Khamenei. Only respond with what is present in his official sources such as khamenei.ir and ajsite.org. Do not invent answers. Respond in the same language the question is asked in (Arabic or English)."""
 
