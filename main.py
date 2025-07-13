@@ -1,65 +1,61 @@
 import os
 import logging
-import requests
+import httpx
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Enable logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-
-logger = logging.getLogger(__name__)
-
-# Environment Variables
+# Load your Telegram bot token and Together API key from environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
-TOGETHER_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 
-# Together API Request Function
-def ask_together(prompt):
-    url = "https://api.together.ai/v1/chat/completions"
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+
+# Model info
+TOGETHER_API_URL = "https://api.together.ai/v1/chat/completions"
+MODEL_NAME = "Qwen/Qwen1.5-7B-Chat"
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("👋 Welcome! Ask me any Islamic question based on Sayyed Khamenei’s fatwas.")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
+
     headers = {
         "Authorization": f"Bearer {TOGETHER_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
-    payload = {
-        "model": TOGETHER_MODEL,
+
+    data = {
+        "model": MODEL_NAME,
         "messages": [
-            {"role": "system", "content": "You are a qualified Islamic scholar answering fatwas based on Sayyed Ali Khamenei's rulings. Answer only according to his jurisprudence."},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": (
+                    "You are a qualified Islamic scholar answering fatwas based only on Sayyed Ali Khamenei's rulings. "
+                    "Answer in the user's language (English, Arabic, or Farsi) and be brief and accurate."
+                ),
+            },
+            {"role": "user", "content": user_message},
         ],
-        "temperature": 0.7
     }
 
-    response = requests.post(url, headers=headers, json=payload)
-    if response.status_code == 200:
-        return response.json()["choices"][0]["message"]["content"]
-    else:
-        logging.error(f"Together API Error: {response.status_code} - {response.text}")
-        return "⚠️ An error occurred while processing your question."
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(TOGETHER_API_URL, headers=headers, json=data)
+            response.raise_for_status()
+            reply = response.json()["choices"][0]["message"]["content"]
+            await update.message.reply_text(reply)
 
-# Start command
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Welcome to AhkamGPT. Ask your Islamic questions based on Sayyed Khamenei's rulings.")
+    except Exception as e:
+        logging.error(f"Together API Error: {e}")
+        await update.message.reply_text("⚠️ An error occurred while processing your question.")
 
-# Main message handler
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_input = update.message.text
-    await update.message.chat.send_action(action="typing")
-    reply = ask_together(user_input)
-    await update.message.reply_text(reply)
-
-# Main bot entry point
-if __name__ == "__main__":
-    if not BOT_TOKEN or not TOGETHER_API_KEY:
-        raise Exception("Missing BOT_TOKEN or TOGETHER_API_KEY environment variables")
-
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    logger.info("✅ Bot is running...")
     app.run_polling()
+
+if __name__ == "__main__":
+    main()
