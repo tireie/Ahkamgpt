@@ -4,26 +4,26 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-# Load from Railway environment variables
+# Environment variables
 TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
-TOGETHER_MODEL = "Qwen/Qwen1.5-7B-Chat"  # Strong Arabic support
+TOGETHER_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 
-# Logging
+# Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # System prompt
-SYSTEM_PROMPT = """You are a qualified Islamic scholar answering fatwas based only on the rulings of Sayyed Ali Khamenei. Do not guess or create fatwas. Use only the official sources like khamenei.ir and ajsite.ir. If a ruling doesn't exist, say so clearly. Answer in the same language as the question."""
+SYSTEM_PROMPT = """You are a qualified Islamic scholar answering fatwas based only on the rulings of Sayyed Ali Khamenei. Do not guess or create fatwas. Use only official sources like khamenei.ir and ajsite.ir. If a ruling doesn't exist, say so clearly. Answer in the same language as the question."""
 
-# Function to ask Together API
+# Ask Together API
 async def ask_gpt(question):
     headers = {
         "Authorization": f"Bearer {TOGETHER_API_KEY}",
         "Content-Type": "application/json"
     }
 
-    data = {
+    payload = {
         "model": TOGETHER_MODEL,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -34,40 +34,36 @@ async def ask_gpt(question):
     }
 
     try:
-        response = requests.post("https://api.together.ai/v1/chat/completions", headers=headers, json=data)
+        response = requests.post("https://api.together.ai/v1/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
-        output = response.json()
-        return output['choices'][0]['message']['content']
+        result = response.json()
+        return result["choices"][0]["message"]["content"].strip()
     except Exception as e:
         logger.error(f"Together API Error: {e}")
         return "⚠️ An error occurred while processing your question."
 
-# /start command
+# /start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_ar = "👋 مرحبًا بك في AhkamGPT! أرسل سؤالك الشرعي وسأجيبك وفقًا لفتاوى السيد علي الخامنئي."
     welcome_en = "👋 Welcome to AhkamGPT! Send your Islamic question and I will answer based on Sayyed Ali Khamenei's rulings."
 
-    user_lang = update.effective_user.language_code
-    if user_lang and user_lang.startswith("ar"):
+    lang = update.effective_user.language_code
+    if lang and lang.startswith("ar"):
         await update.message.reply_text(welcome_ar)
     else:
         await update.message.reply_text(welcome_en)
 
-# Main message handler
+# Message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = update.message.text
     await update.message.chat.send_action(action="typing")
-    answer = await ask_gpt(user_input)
-    await update.message.reply_text(answer)
+    reply = await ask_gpt(user_input)
+    await update.message.reply_text(reply)
 
-# Main application
+# Start app
 if __name__ == "__main__":
-    if TELEGRAM_TOKEN is None:
-        print("❌ BOT_TOKEN is missing from environment variables.")
-        exit(1)
-
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("✅ Bot is running...")
+    print("Bot is running...")
     app.run_polling()
