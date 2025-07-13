@@ -1,124 +1,79 @@
 import os
 import re
-import logging
-import sys
-
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 import httpx
+from telegram import Update
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-# Setup logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+# Load tokens from environment
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
+if not TELEGRAM_TOKEN or not TOGETHER_API_KEY:
+    raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or TOGETHER_API_KEY in environment")
+
+# System prompts for English and Arabic users
+SYSTEM_PROMPT_EN = (
+    "You are an assistant answering Islamic jurisprudence questions. "
+    "You must answer *only* based on official fatwas of Sayyed Ali Khamenei from khamenei.ir and ajsite.ir. "
+    "Do not guess or provide any other information. Answer concisely and accurately, without verbosity. "
+    "If there is no known fatwa for the question, reply exactly: \"There is no known fatwa from Sayyed Ali Khamenei on this topic.\""
+)
+SYSTEM_PROMPT_AR = (
+    "أنت مساعد للإجابة على أسئلة الفقه الإسلامي بناءً فقط على فتاوى رسمية للسيد علي خامنئي من khamenei.ir و ajsite.ir. "
+    "لا تقم بالتخمين أو إضافة أي معلومات أخرى. أجب بإيجاز ودقة دون إطالة. "
+    "إذا لم توجد فتوى معروفة حول السؤال، فأجب بالضبط: \"لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع.\""
 )
 
-# Load environment variables
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
-if not BOT_TOKEN or not TOGETHER_API_KEY:
-    logging.error("Missing BOT_TOKEN or TOGETHER_API_KEY.")
-    sys.exit(1)
-
-# Local verified fatwas with grouped keywords
-known_fatwas = {
-    "shrimp prawns seafood": {
-        "en": "Shrimp is halal according to Sayyed Ali Khamenei.",
-        "ar": "الروبيان حلال حسب فتوى السيد علي الخامنئي.",
-        "source": "https://www.ajsite.ir"
-    }
-}
-
-# Strict system prompt
-system_prompt = (
-    "You are an expert Islamic jurist assigned to answer religious questions ONLY based on the official fatwas "
-    "of Sayyed Ali Khamenei. You are not allowed to answer from your own opinion, from other scholars, or from other schools of thought. "
-    "Your only valid sources are the official websites: khamenei.ir and ajsite.ir.\n\n"
-    "Your task is limited to the following logic:\n"
-    "1. ONLY provide rulings that are explicitly issued by Sayyed Ali Khamenei and published on khamenei.ir or ajsite.ir.\n"
-    "2. NEVER invent, complete, assume, or infer rulings that are not clearly found in his official fatwas.\n"
-    "3. NEVER use general Islamic knowledge or rulings from other maraji‘ (scholars).\n"
-    "4. If the question has no fatwa from Sayyed Ali Khamenei, simply say:\n"
-    "   - In English: \"There is no known fatwa from Sayyed Ali Khamenei on this topic.\"\n"
-    "   - In Arabic: \"لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع.\"\n"
-    "5. Do not summarize or restate general Islamic principles — ONLY quote or paraphrase fatwas from Sayyed Khamenei.\n"
-    "6. Always answer in the same language used by the user: Arabic if the question is in Arabic, or English if the question is in English.\n\n"
-    "✅ Summary: If there is no explicit fatwa from Sayyed Ali Khamenei on this exact question, do NOT answer. Say you don’t know."
-)
-
-# Detect Arabic
-def contains_arabic(text: str) -> bool:
+def is_arabic(text: str) -> bool:
+    """Simple check if the text contains Arabic characters."""
     return bool(re.search(r'[\u0600-\u06FF]', text))
 
-# Flexible local fatwa matcher
-def search_fatwa_local(user_input: str) -> dict:
-    user_input_lower = user_input.lower()
-    for keyword_group, data in known_fatwas.items():
-        keywords = keyword_group.split()
-        if any(kw in user_input_lower for kw in keywords):
-            return data
-    return None
-
-# Query Together AI
-async def ask_together(user_input: str) -> str:
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_input}
-    ]
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                "https://api.together.xyz/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {TOGETHER_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "mistralai/Mistral-7B-Instruct-v0.3",
-                    "messages": messages,
-                    "temperature": 0.0,
-                    "top_p": 1.0,
-                    "max_tokens": 512
-                }
-            )
-            result = response.json()
-            return result["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        logging.error(f"Together API error: {e}")
-        return "⚠️ Fatwa service is currently unavailable. Please try again later."
-
-# Telegram message handler
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_text = update.message.text.strip()
     if not user_text:
         return
 
-    lang = "ar" if contains_arabic(user_text) else "en"
+    # Determine language and set system prompt and fallback accordingly
+    if is_arabic(user_text):
+        system_prompt = SYSTEM_PROMPT_AR
+    else:
+        system_prompt = SYSTEM_PROMPT_EN
 
-    # 1. Try local fallback
-    local_fatwa = search_fatwa_local(user_text)
-    if local_fatwa:
-        await update.message.reply_text(local_fatwa[lang])
-        return
+    # Prepare the payload for Together AI chat completions3
+    api_url = "https://api.together.xyz/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {TOGETHER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "mistralai/Mistral-7B-Instruct-v0.3",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text}
+        ]
+    }
 
-    # 2. Ask the model
-    logging.info(f"User asked: {user_text}")
-    reply = await ask_together(user_text)
-    logging.info(f"Bot replied: {reply}")
+    # Call Together API
+    try:
+        response = httpx.post(api_url, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        # Extract the assistant's reply
+        answer = data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        # In case of any error, use fallback response
+        if is_arabic(user_text):
+            answer = "لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع."
+        else:
+            answer = "There is no known fatwa from Sayyed Ali Khamenei on this topic."
 
-    # 3. Fallback to correct language if model guessed incorrectly
-    if reply.lower().startswith("there is no known fatwa") and lang == "ar":
-        reply = "لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع."
-    elif "لا توجد فتوى" in reply and lang == "en":
-        reply = "There is no known fatwa from Sayyed Ali Khamenei on this topic."
+    # Reply to the user
+    await update.message.reply_text(answer)
 
-    await update.message.reply_text(reply)
+def main() -> None:
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    # Handle text messages (excluding commands)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.run_polling()
 
-# Start bot
-def main():
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logging.info("AhkamGPT bot with improved fallback started.")
-    application.run_polling()
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
