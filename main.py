@@ -8,64 +8,54 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# Load tokens from environment variables
+# Load tokens from Railway environment
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY")
 if not BOT_TOKEN or not TOGETHER_API_KEY:
     logging.error("Missing BOT_TOKEN or TOGETHER_API_KEY environment variable.")
     sys.exit(1)
 
-# Helper function to detect Arabic text
+# Detect Arabic text
 def contains_arabic(text: str) -> bool:
     return bool(re.search(r'[\u0600-\u06FF]', text))
 
-# /start command handler
+# /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Choose Arabic or English based on the user's language setting
-    user_lang = update.effective_user.language_code if update.effective_user else None
-    if user_lang and user_lang.lower().startswith("ar"):
-        welcome_text = (
-            "مرحبًا! أنا بوت الفتاوى. "
-            "يمكنني الإجابة عن أسئلتك بناءً على الفتاوى الرسمية لسماحة السيد علي الخامنئي. "
-            "اكتب سؤالك لأساعدك."
+    user_lang = update.effective_user.language_code if update.effective_user else ""
+    if user_lang.lower().startswith("ar"):
+        await update.message.reply_text(
+            "👋 مرحبًا! أرسل سؤالك الشرعي وسأجيبك فقط وفقًا لفتاوى سماحة السيد علي الخامنئي من المصادر الرسمية."
         )
     else:
-        welcome_text = (
-            "Hello! I am a fatwa assistant bot. "
-            "I can answer your questions based on the official fatwas of Sayyed Ali Khamenei. "
-            "Please send your question, and I will assist you."
+        await update.message.reply_text(
+            "👋 Welcome! Send your Islamic question and I will answer strictly based on Sayyed Ali Khamenei's official rulings."
         )
-    await update.message.reply_text(welcome_text)
 
-# Message handler for user queries
+# Message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_text = (update.message.text or "").strip()
     if not user_text:
-        return  # ignore empty messages
-    
-    # Detect language of the user message
+        return
+
     is_arabic = contains_arabic(user_text)
-    
-    # System prompt enforcing fatwa-only policy and proper language response
+
     system_prompt = (
-        "You are an AI assistant that strictly answers questions based on the official religious rulings (fatwas) of "
-        "Sayyed Ali Khamenei. Use only information from official sources such as Khamenei’s official website (khamenei.ir) "
-        "or Ajwiba (ajsite.ir). If the user's question is in Arabic, provide your answer in Arabic; if the question is in English, "
-        "provide your answer in English. Do not provide any answer that is not supported by Sayyed Ali Khamenei’s fatwas. "
-        "Do not guess or provide unofficial information. If there is no relevant fatwa available, state clearly that no fatwa is available on the topic."
+        "You are a qualified Islamic scholar. Answer fatwa questions strictly based on Sayyed Ali Khamenei’s rulings. "
+        "Only use khamenei.ir and ajsite.ir as references. "
+        "If no official fatwa exists, say so. Do not guess or invent. "
+        f"Answer in {'Arabic' if is_arabic else 'English'}."
     )
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_text}
     ]
-    
-    # Show "typing" action while processing
+
     try:
         await update.message.reply_chat_action("typing")
     except Exception as e:
-        logging.warning(f"Failed to send chat action: {e}")
-    
-    # Prepare API request to Together AI
+        logging.warning(f"Chat action failed: {e}")
+
     api_url = "https://api.together.xyz/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {TOGETHER_API_KEY}",
@@ -74,50 +64,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     payload = {
         "model": "mistralai/Mistral-7B-Instruct-v0.3",
         "messages": messages,
-        "max_tokens": 1000,
-        "temperature": 0.0
+        "temperature": 0.0,
+        "max_tokens": 1000
     }
+
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.post(api_url, json=payload, headers=headers, timeout=15.0)
-            resp.raise_for_status()
-            data = resp.json()
+            response = await client.post(api_url, headers=headers, json=payload, timeout=20)
+            response.raise_for_status()
+            data = response.json()
     except Exception as e:
-        logging.error(f"API request failed: {e}")
-        # Send a fallback error message to the user
-        if is_arabic:
-            await update.message.reply_text("عذرًا، الخدمة غير متاحة حاليًا. الرجاء المحاولة مرة أخرى لاحقًا.")
-        else:
-            await update.message.reply_text("Sorry, the service is currently unavailable. Please try again later.")
+        logging.error(f"API Error: {e}")
+        msg = "عذرًا، حدث خطأ في الخدمة. حاول لاحقًا." if is_arabic else "Sorry, the service is currently unavailable. Please try again later."
+        await update.message.reply_text(msg)
         return
-    
-    # Extract reply from API response
-    reply_text = None
+
+    reply_text = ""
     if data.get("choices"):
-        first_choice = data["choices"][0]
-        # Check the expected chat completion format
-        if first_choice.get("message") and first_choice["message"].get("content"):
-            reply_text = first_choice["message"]["content"]
-        elif first_choice.get("text"):
-            reply_text = first_choice["text"]
-    
-    # Handle case with no content (no fatwa available or empty response)
-    if not reply_text or not reply_text.strip():
-        if is_arabic:
-            reply_text = "لا توجد فتوى متاحة لهذا السؤال."
-        else:
-            reply_text = "No fatwa is available for this question."
-    
-    # Send the answer back to the user
+        reply = data["choices"][0]
+        if reply.get("message") and reply["message"].get("content"):
+            reply_text = reply["message"]["content"]
+        elif reply.get("text"):
+            reply_text = reply["text"]
+
+    if not reply_text.strip():
+        reply_text = "لا توجد فتوى متاحة لهذا السؤال." if is_arabic else "No fatwa is available for this question."
+
     await update.message.reply_text(reply_text.strip())
 
+# Launch bot
 def main() -> None:
-    # Initialize the bot application
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    # Start the bot (polling Telegram for new messages)
-    application.run_polling()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.run_polling()
 
-if __name__ == "__main__":
-    main()
+if __name__
