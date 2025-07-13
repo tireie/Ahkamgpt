@@ -72,7 +72,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "Qwen/Qwen1.5-7B-Chat",
+        "model": "Qwen/Qwen1.5-7B-Instruct",
         "messages": messages,
         "max_tokens": 1000,
         "temperature": 0.0
