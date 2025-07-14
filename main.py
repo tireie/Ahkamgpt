@@ -16,11 +16,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
-TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-if not TELEGRAM_BOT_TOKEN or not OPENROUTER_API_KEY:
-    raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or OPENROUTER_API_KEY")
+if not BOT_TOKEN or not OPENROUTER_API_KEY:
+    raise RuntimeError("Missing BOT_TOKEN or OPENROUTER_API_KEY")
 
 # System instructions
 instructions = """
@@ -81,12 +81,17 @@ async def ask_openrouter(user_input: str) -> str:
         logger.error(f"OpenRouter API error: {e}")
         return "⚠️ Fatwa service is currently unavailable."
 
-# /start command handler
+# /start command handler (bilingual)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome = (
-        "🕌 **السلام عليكم ورحمة الله وبركاته**\n\n"
-        "**Welcome to AhkamGPT — your assistant for Islamic rulings based on Sayyed Ali Khamenei’s fatwas.**\n"
-        "You may ask in Arabic or English.\n"
+        "🕌 **السلام عليكم ورحمة الله وبركاته**\n"
+        "🕌 **Peace and blessings be upon you.**\n\n"
+        "🤖 **أهلاً بك في AhkamGPT — مساعدك للإجابة عن الأحكام الشرعية بناءً على فتاوى السيد علي الخامنئي.**\n"
+        "🤖 **Welcome to AhkamGPT — your assistant for Islamic rulings based on Sayyed Ali Khamenei’s fatwas.**\n\n"
+        "🗣️ **يمكنك طرح الأسئلة بالعربية أو الإنجليزية.**\n"
+        "🗣️ **You may ask questions in Arabic or English.**\n\n"
+        "📌 **كل الإجابات تعتمد فقط على المصادر الرسمية المعتمدة.**\n"
+        "📌 **All answers are based strictly on official verified sources only.**"
     )
     await update.message.reply_text(welcome, parse_mode="Markdown")
 
@@ -103,7 +108,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # App entry point
 def main():
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logger.info("🤖 AhkamGPT bot started using GPT-4.")
