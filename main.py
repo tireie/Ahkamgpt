@@ -1,102 +1,113 @@
 import os
-import logging
-import sys
 import re
-
+import logging
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters
+)
 import httpx
 
-# Setup logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+# Enable logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
-if not BOT_TOKEN or not OPENROUTER_API_KEY:
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+if not TELEGRAM_BOT_TOKEN or not OPENROUTER_API_KEY:
     raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or OPENROUTER_API_KEY")
 
-# Strict system prompt
-system_prompt = (
-    "You are an Islamic scholar who answers questions only based on the official rulings and teachings "
-    "of Sayyed Ali Khamenei. You must only use trusted sources including:\n"
-    "- khamenei.ir\n"
-    "- ajsite.ir\n"
-    "- leader.ir\n"
-    "- abna24.com\n"
-    "- al-islam.org\n\n"
-    "Rules:\n"
-    "1. If no ruling or verified answer exists, say:\n"
-    '   - English: "There is no known ruling or teaching from Sayyed Ali Khamenei on this topic."\n'
-    '   - Arabic: "لا يوجد رأي معروف للسيد علي الخامنئي حول هذا الموضوع."\n'
-    "2. Never guess or assume an answer.\n"
-    "3. Only answer from the listed sources.\n"
-    "4. Support both fatwa rulings and general Islamic guidance.\n"
-    "5. Always answer in the user's language (Arabic or English).\n"
-    "6. Keep answers concise, accurate, and respectful."
-)
+# Strict Instructions
+instructions = """
+You are a trusted Islamic assistant who only provides answers based on the official jurisprudence (Ahkam) and religious teachings of Sayyed Ali Khamenei.
+
+📌 You must strictly follow the following rules:
+
+1. Only answer using verified, official sources:
+   - https://khamenei.ir
+   - https://leader.ir
+   - https://ajsite.ir
+   - https://abna24.com
+   - https://al-islam.org
+
+2. If there is no known ruling from Sayyed Ali Khamenei on the question:
+   - In English, reply: "There is no known fatwa from Sayyed Ali Khamenei on this topic."
+   - In Arabic, reply: "لا توجد فتوى معروفة من السيد علي الخامنئي حول هذا الموضوع."
+
+3. Never guess, summarize, or infer rulings. Do not make up references. Only quote rulings that are explicitly published by Sayyed Khamenei or his official offices.
+
+4. If the user’s question is about general Islamic topics (not rulings), still respond only based on the same sources above.
+
+💬 Always answer in the same language the user asked (Arabic or English).
+✂️ Be concise, precise, and avoid listing items unless explicitly confirmed by official fatwas.
+
+You are not allowed to improvise or speculate under any circumstances.
+"""
 
 # Detect Arabic
-def contains_arabic(text: str) -> bool:
+def is_arabic(text: str) -> bool:
     return bool(re.search(r'[\u0600-\u06FF]', text))
 
-# Ask OpenRouter Claude 3 Sonnet
-async def ask_openrouter(prompt: str) -> str:
+# Claude via OpenRouter
+async def ask_openrouter(user_input: str) -> str:
     try:
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://yourdomain.com"
+        }
+
+        data = {
+            "model": "anthropic/claude-3-sonnet",
+            "messages": [
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": user_input}
+            ],
+            "temperature": 0.2,
+            "max_tokens": 1024
+        }
+
         async with httpx.AsyncClient(timeout=40.0) as client:
-            response = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "anthropic/claude-3-sonnet",
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
-                    "max_tokens": 1024,
-                    "temperature": 0.2
-                }
-            )
-            data = response.json()
-            return data["choices"][0]["message"]["content"].strip()
+            response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"].strip()
+
     except Exception as e:
-        logging.error(f"OpenRouter error: {e}")
-        return "⚠️ Sorry, the fatwa service is currently unavailable."
+        logger.error(f"OpenRouter API error: {e}")
+        return "⚠️ Fatwa service is currently unavailable."
 
 # /start handler
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome = (
-        "🕌 **Ahkam GPT**\n\n"
-        "السلام عليكم ورحمة الله وبركاته\n"
-        "Welcome! You can ask questions about Islamic rulings and teachings based strictly on the official fatwas and views of Sayyed Ali Khamenei.\n\n"
-        "❓ Example:\n"
-        "- Can I fast while breastfeeding?\n"
-        "- ما حكم بلع بقايا الطعام أثناء الصيام؟"
+        "🕌 **السلام عليكم ورحمة الله وبركاته**\n\n"
+        "**Welcome to AhkamGPT — your assistant for Islamic rulings based on Sayyed Ali Khamenei’s fatwas.**\n"
+        "You may ask in Arabic or English.\n"
     )
     await update.message.reply_text(welcome, parse_mode="Markdown")
 
-# Handle normal messages
+# Main message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     if not user_text:
         return
-    logging.info(f"User asked: {user_text}")
+
+    logger.info(f"User: {user_text}")
     reply = await ask_openrouter(user_text)
-    logging.info(f"Bot reply: {reply}")
+    logger.info(f"Bot: {reply}")
     await update.message.reply_text(reply)
 
-# Run the bot
+# Entry point
 def main():
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logging.info("AhkamGPT Telegram bot started.")
-    application.run_polling()
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    logger.info("🤖 AhkamGPT bot started.")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
