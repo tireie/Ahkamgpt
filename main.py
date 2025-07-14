@@ -16,13 +16,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
-TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 if not TELEGRAM_BOT_TOKEN or not OPENROUTER_API_KEY:
     raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or OPENROUTER_API_KEY")
 
-# Strict Instructions
+# System instructions
 instructions = """
 You are a trusted Islamic assistant who only provides answers based on the official jurisprudence (Ahkam) and religious teachings of Sayyed Ali Khamenei.
 
@@ -53,7 +53,7 @@ You are not allowed to improvise or speculate under any circumstances.
 def is_arabic(text: str) -> bool:
     return bool(re.search(r'[\u0600-\u06FF]', text))
 
-# Claude via OpenRouter
+# GPT-4 via OpenRouter
 async def ask_openrouter(user_input: str) -> str:
     try:
         headers = {
@@ -63,7 +63,7 @@ async def ask_openrouter(user_input: str) -> str:
         }
 
         data = {
-            "model": "anthropic/claude-3-sonnet",
+            "model": "openai/gpt-4",
             "messages": [
                 {"role": "system", "content": instructions},
                 {"role": "user", "content": user_input}
@@ -81,7 +81,7 @@ async def ask_openrouter(user_input: str) -> str:
         logger.error(f"OpenRouter API error: {e}")
         return "⚠️ Fatwa service is currently unavailable."
 
-# /start handler
+# /start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome = (
         "🕌 **السلام عليكم ورحمة الله وبركاته**\n\n"
@@ -101,12 +101,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Bot: {reply}")
     await update.message.reply_text(reply)
 
-# Entry point
+# App entry point
 def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logger.info("🤖 AhkamGPT bot started.")
+    logger.info("🤖 AhkamGPT bot started using GPT-4.")
     app.run_polling()
 
 if __name__ == "__main__":
