@@ -59,7 +59,7 @@ async def ask_openrouter(system_prompt: str, user_input: str) -> str:
                     "X-Title": "AhkamGPT"
                 },
                 json={
-                    "model": "qwen/qwen3-32b",
+                    "model": "anthropic/claude-3-sonnet",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_input}
